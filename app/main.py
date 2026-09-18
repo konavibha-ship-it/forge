@@ -24,7 +24,7 @@ import os
 # copy-pasting it again — real projects share code across folders like this.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "rag_agent"))
 
-from retrieval import TFIDFVectorizer, SimpleVectorStore   # noqa: E402
+from neural_retrieval import NeuralVectorStore    # noqa: E402
 from agent import tool_calculator, make_search_tool, run_agent  # noqa: E402
 
 
@@ -43,10 +43,7 @@ DEFAULT_KNOWLEDGE_BASE = [
 
 def build_agent():
     """Set up the vector store and tools, return a ready-to-use tools dict."""
-    vectorizer = TFIDFVectorizer()
-    vectorizer.fit(DEFAULT_KNOWLEDGE_BASE)
-
-    store = SimpleVectorStore(vectorizer)
+    store = NeuralVectorStore()
     for doc in DEFAULT_KNOWLEDGE_BASE:
         store.add(doc)
 
