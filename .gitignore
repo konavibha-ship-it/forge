@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+target/
+*.egg-info/
+.DS_Store
+*.ckpt
+*.bin
+data/raw/

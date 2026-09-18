@@ -1,0 +1,12 @@
+# Phase 1 (tokenizer) needs nothing beyond the standard library.
+# Uncomment/add as you move into later phases:
+
+# Phase 3 - training
+# torch
+# numpy
+
+# Phase 5 - RAG / agent
+# sentence-transformers
+# requests
+
+pytest
