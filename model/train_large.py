@@ -18,10 +18,16 @@ Run on a free GPU (much faster — recommended for this step):
 
 Either way, the output is model/checkpoint.pt — your trained model, saved
 to disk, ready to load later without retraining (see generate.py).
+
+RESUMING: this script now saves a checkpoint every --save_every steps
+(default 300), so it's safe to stop (Ctrl+C) at any point. To pick back
+up later from the last save:
+    python train_large.py --resume
 """
 
 import os
 import time
+import argparse
 import torch
 from architecture import GPT
 
@@ -71,7 +77,29 @@ def estimate_loss(model, train_data, val_data, block_size, batch_size, eval_iter
     return out
 
 
+def save_checkpoint(model, optimizer, stoi, itos, step, path):
+    """Save everything needed to fully resume training later, not just
+    weights: optimizer state (AdamW tracks per-parameter momentum, so
+    resuming without it causes a rough restart) and which step we're on."""
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "config": model.config,
+        "stoi": stoi,
+        "itos": itos,
+        "step": step,
+    }, path)
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resume", action="store_true",
+                         help="Resume from checkpoint.pt instead of starting fresh.")
+    parser.add_argument("--save_every", type=int, default=300,
+                         help="Save a checkpoint every N steps, so progress "
+                              "is never lost if training is interrupted.")
+    args = parser.parse_args()
+
     print(f"Using device: {device}")
     if device == "cpu":
         print("(No GPU detected — this will still work, just slower. "
@@ -102,12 +130,26 @@ if __name__ == "__main__":
     print(f"Train: {len(train_data):,} chars, Val: {len(val_data):,} chars\n")
 
     model = GPT(vocab_size, N_EMBD, N_HEAD, N_LAYER, BLOCK_SIZE, DROPOUT).to(device)
-    print(f"Model parameters: {model.num_params():,}\n")
-
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
+    start_step = 0
+    if args.resume:
+        if not os.path.exists(CHECKPOINT_PATH):
+            raise FileNotFoundError(
+                f"--resume was given but no checkpoint exists at {CHECKPOINT_PATH}"
+            )
+        checkpoint = torch.load(CHECKPOINT_PATH, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_step = checkpoint["step"] + 1
+        stoi, itos = checkpoint["stoi"], checkpoint["itos"]
+        print(f"Resumed from checkpoint at step {checkpoint['step']} "
+              f"— continuing from step {start_step}.\n")
+    else:
+        print(f"Model parameters: {model.num_params():,}\n")
+
     start_time = time.time()
-    for step in range(MAX_ITERS):
+    for step in range(start_step, MAX_ITERS):
         xb, yb = get_batch(train_data, BLOCK_SIZE, BATCH_SIZE, device)
         logits, loss = model(xb, yb)
         optimizer.zero_grad(set_to_none=True)
@@ -120,18 +162,14 @@ if __name__ == "__main__":
             print(f"step {step:5d}  train loss {losses['train']:.4f}  "
                   f"val loss {losses['val']:.4f}  ({elapsed:.1f}s elapsed)")
 
+        # Save periodically, independent of evaluation — this is what
+        # makes it safe to stop the run at any point and pick up later.
+        if step % args.save_every == 0 or step == MAX_ITERS - 1:
+            save_checkpoint(model, optimizer, stoi, itos, step, CHECKPOINT_PATH)
+
     total_time = time.time() - start_time
     print(f"\nTraining finished in {total_time:.1f}s.")
-
-    # --- save the checkpoint: weights + vocab + config, everything needed
-    # to reload this exact model later without retraining ---
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "config": model.config,
-        "stoi": stoi,
-        "itos": itos,
-    }, CHECKPOINT_PATH)
-    print(f"Checkpoint saved to {CHECKPOINT_PATH}")
+    print(f"Final checkpoint saved to {CHECKPOINT_PATH}")
 
     # --- generate a sample to see what the trained model produces ---
     print("\nSample generation:")
